@@ -70,12 +70,16 @@ public class StreamFeatures {
                     while (parser.next() == XmlPullParser.START_TAG) {
                         if (parser.getName().equals("mechanism")) {
                             final String mechanism = XmlUtils.getTagText(parser).toUpperCase();
-                            if (mechanism.equals("PLAIN")) {
-                                features.PLAIN = AVAILABLE;
-                            } else if (mechanism.equals("DIGEST-MD5")) {
-                                features.DIGEST_MD5 = AVAILABLE;
-                            } else if (mechanism.equals("X-GOOGLE-TOKEN")) {
-                                features.X_GOOGLE_TOKEN = AVAILABLE;
+                            switch (mechanism) {
+                                case "PLAIN":
+                                    features.PLAIN = AVAILABLE;
+                                    break;
+                                case "DIGEST-MD5":
+                                    features.DIGEST_MD5 = AVAILABLE;
+                                    break;
+                                case "X-GOOGLE-TOKEN":
+                                    features.X_GOOGLE_TOKEN = AVAILABLE;
+                                    break;
                             }
                         } else {
                             XmlUtils.skip(parser);

@@ -1,6 +1,9 @@
 package com.juick.xmpp.tests;
 
 import com.juick.xmpp.*;
+import com.juick.xmpp.StreamComponent;
+import com.juick.xmpp.StreamComponentServer;
+import com.juick.xmpp.StreamListener;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;

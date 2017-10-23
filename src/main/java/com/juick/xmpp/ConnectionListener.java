@@ -3,7 +3,8 @@ package com.juick.xmpp;
 import com.juick.xmpp.extensions.StreamError;
 
 public interface ConnectionListener {
-    //void starttls(ConnectionIn connection); TODO migrate ConnectionIn
+    void starttls(StreamServer connection);
+
     void proceed(StreamServerDialback connection);
 
     void verify(StreamServerDialback connection, String from, String type, String sid);

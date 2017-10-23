@@ -26,12 +26,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 /**
- *
  * @author Ugnich Anton
  */
 public class StreamComponent extends Stream {
 
-    String password;
+    public static final String NS_COMPONENT_ACCEPT = "jabber:component:accept";
+
+    private String password;
 
     public StreamComponent(Jid to, InputStream is, OutputStream os, String password) throws XmlPullParserException {
         super(null, to, is, os);
@@ -40,17 +41,14 @@ public class StreamComponent extends Stream {
 
     @Override
     public void handshake() throws XmlPullParserException, IOException {
-        send("<stream:stream xmlns='jabber:component:accept' xmlns:stream='http://etherx.jabber.org/streams' to='" +
-                to.toEscapedString() + "'>");
+        send(String.format("<stream:stream xmlns='%s' xmlns:stream='%s' to='%s'>", NS_COMPONENT_ACCEPT, NS_STREAM, to.toEscapedString()));
 
         parser.next(); // stream:stream
         String sid = parser.getAttributeValue(null, "id");
         String sfrom = parser.getAttributeValue(null, "from");
         if (sfrom == null || !sfrom.equals(to.toString())) {
             setLoggedIn(false);
-            for (StreamListener listener : listenersStream) {
-                listener.fail(new IOException("stream:stream, failed authentication"));
-            }
+            getListenersStream().forEach(listener -> listener.fail(new IOException("stream:stream, failed authentication")));
             return;
         }
 

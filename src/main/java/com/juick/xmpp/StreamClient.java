@@ -27,16 +27,17 @@ import rocks.xmpp.addr.Jid;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Iterator;
 
 /**
- *
  * @author Ugnich Anton
  */
 public class StreamClient extends Stream implements Iq.IqListener {
 
     public final static String XMLNS = "urn:ietf:params:xml:ns:xmpp-session";
-    String password;
+
+    public static final String NS_CLIENT = "jabber:client";
+
+    private String password;
 
     public StreamClient(Jid from, Jid to, InputStream is, OutputStream os, String password) throws XmlPullParserException {
         super(from, to, is, os);
@@ -45,30 +46,25 @@ public class StreamClient extends Stream implements Iq.IqListener {
 
     @Override
     public void handshake() throws XmlPullParserException, IOException {
-        String msg = "<stream:stream xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' to='" + to.getDomain() + "' version='1.0'>";
-        writer.write(msg);
+        writer.write(String.format("<stream:stream xmlns='%s' xmlns:stream='%s' to='%s' version='1.0'>", NS_CLIENT, NS_STREAM, to.getDomain()));
         writer.flush();
         parser.next(); // stream:stream
 
         StreamFeatures features = StreamFeatures.parse(parser);
         if (features.STARTTLS == StreamFeatures.REQUIRED || features.PLAIN == StreamFeatures.NOTAVAILABLE) {
             setLoggedIn(false);
-            for (Iterator<StreamListener> it = listenersStream.iterator(); it.hasNext();) {
-                it.next().fail(new IOException("stream:features, failed authentication"));
-            }
+            getListenersStream().forEach(listener -> listener.fail(new IOException("stream:features, failed authentication")));
             return;
         }
 
-        msg = "<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>";
+        StringBuilder msg = new StringBuilder("<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>");
         byte[] auth_msg = (from.asBareJid().toEscapedString() + '\0' + from.getLocal() + '\0' + password).getBytes();
-        msg = msg + Base64.encodeBase64String(auth_msg) + "</auth>";
-        writer.write(msg);
+        msg.append(Base64.encodeBase64String(auth_msg)).append("</auth>");
+        writer.write(msg.toString());
         writer.flush();
         parser.next();
         if (parser.getName().equals("success")) {
-            do {
-                parser.next();
-            } while (!(parser.getEventType() == XmlPullParser.END_TAG && parser.getName().equals("success")));
+            skipTag("success");
             setLoggedIn(true);
         } else {
             setLoggedIn(false);
@@ -78,12 +74,9 @@ public class StreamClient extends Stream implements Iq.IqListener {
             return;
         }
 
-        send("<stream:stream xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' to='" + to.getDomain() +
-                "' version='1.0'>");
+        send(String.format("<stream:stream xmlns='%s' xmlns:stream='%s' to='%s' version='1.0'>", NS_CLIENT, NS_STREAM, to.getDomain()));
         restartStream();
-        do {
-            parser.next();
-        } while (!(parser.getEventType() == XmlPullParser.END_TAG && parser.getName().equals("features")));
+        skipTag("features");
 
         Iq bind = new Iq();
         bind.type = Iq.Type.set;
@@ -99,6 +92,12 @@ public class StreamClient extends Stream implements Iq.IqListener {
         writer.flush();
     }
 
+    protected void skipTag(String tagName) throws IOException, XmlPullParserException {
+        do {
+            parser.next();
+        } while (!(parser.getEventType() == XmlPullParser.END_TAG && parser.getName().equals(tagName)));
+    }
+
     protected void session() {
         try {
             send("<iq type='set' id='sess'><session xmlns='" + XMLNS + "'/></iq>");
@@ -109,7 +108,9 @@ public class StreamClient extends Stream implements Iq.IqListener {
 
     @Override
     public boolean onIq(Iq iq) {
-        if (iq.childs.isEmpty()) return false;
+        if (iq.childs.isEmpty()) {
+            return false;
+        }
         String xmlns = iq.childs.get(0).getXMLNS();
         if (xmlns.equals(ResourceBinding.XMLNS)) {
             ResourceBinding rb = (ResourceBinding) iq.childs.get(0);

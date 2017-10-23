@@ -20,6 +20,8 @@ package com.juick.xmpp;
 import com.juick.xmpp.extensions.StreamError;
 import com.juick.xmpp.extensions.StreamFeatures;
 import com.juick.xmpp.utils.XmlUtils;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.codec.digest.HmacUtils;
 import org.apache.commons.text.RandomStringGenerator;
@@ -41,11 +43,15 @@ public class StreamServerDialback extends Stream {
     protected static final Logger logger = LoggerFactory.getLogger(StreamServerDialback.class);
     public static final String NS_TLS = "urn:ietf:params:xml:ns:xmpp-tls";
     public static final String NS_DB = "jabber:server:dialback";
+    public static final String NS_SERVER = "jabber:server";
+    @Getter
+    @Setter
     private boolean secured = false;
 
-    public boolean streamReady = false;
-    String checkSID = null;
-    String dbKey = null;
+    @Getter
+    private boolean streamReady = false;
+    private String checkSID = null;
+    private String dbKey = null;
     private String streamID;
     ConnectionListener connectionListener;
     RandomStringGenerator generator = new RandomStringGenerator.Builder().withinRange('a', 'z').build();
@@ -65,16 +71,15 @@ public class StreamServerDialback extends Stream {
         if (checkSID != null) {
             sendDialbackVerify(checkSID, dbKey);
         }
-        send("<db:result from='" + from.toEscapedString() + "' to='" + to.toEscapedString() + "'>" +
-            dbKey + "</db:result>");
+        send("<db:result from='" + from.toEscapedString() + "' to='" + to.toEscapedString() + "'>" + dbKey + "</db:result>");
     }
 
     @Override
     public void handshake() {
         try {
-            send("<?xml version='1.0'?><stream:stream xmlns='jabber:server' id='" + streamID +
-                "' xmlns:stream='http://etherx.jabber.org/streams' xmlns:db='jabber:server:dialback' from='" +
-                from.toEscapedString() + "' to='" + to.toEscapedString() + "' version='1.0'>");
+            send(String.format(
+                "<?xml version='1.0'?><stream:stream xmlns='%s' id='%s' xmlns:stream='%s' xmlns:db='%s' from='%s' to='%s' version='1.0'>",
+                NS_SERVER, streamID, NS_STREAM, NS_DB, from.toEscapedString(), to.toEscapedString()));
 
             parser.next(); // stream:stream
             streamID = parser.getAttributeValue(null, "id");
@@ -138,8 +143,7 @@ public class StreamServerDialback extends Stream {
     }
 
     public void sendDialbackVerify(String sid, String key) {
-        send("<db:verify from='" + from.toEscapedString() + "' to='" + to + "' id='" + sid + "'>" +
-            key + "</db:verify>");
+        send("<db:verify from='" + from.toEscapedString() + "' to='" + to + "' id='" + sid + "'>" + key + "</db:verify>");
     }
 
     public void setConnectionListener(ConnectionListener connectionListener) {
@@ -148,14 +152,6 @@ public class StreamServerDialback extends Stream {
 
     public String getStreamID() {
         return streamID;
-    }
-
-    public boolean isSecured() {
-        return secured;
-    }
-
-    public void setSecured(boolean secured) {
-        this.secured = secured;
     }
 
     public static String generateKey(String secret, Jid to, Jid from, String id) {

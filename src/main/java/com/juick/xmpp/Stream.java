@@ -19,12 +19,18 @@ package com.juick.xmpp;
 
 import com.juick.xmpp.extensions.StreamError;
 import com.juick.xmpp.utils.XmlUtils;
+import lombok.Getter;
+import lombok.Setter;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlPullParserFactory;
 import rocks.xmpp.addr.Jid;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.text.ParseException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -33,34 +39,28 @@ import java.util.List;
 import java.util.Map;
 
 /**
- *
  * @author Ugnich Anton
  */
+@Getter
 public abstract class Stream {
 
     public static final String NS_STREAM = "http://etherx.jabber.org/streams";
 
-    public boolean isLoggedIn() {
-        return loggedIn;
-    }
-
-    public void setLoggedIn(boolean loggedIn) {
-        this.loggedIn = loggedIn;
-    }
-
-    public Jid from;
-    public Jid to;
+    protected Jid from;
+    protected Jid to;
+    @Setter
     private InputStream is;
+    @Setter
     private OutputStream os;
     protected XmlPullParserFactory factory;
     protected XmlPullParser parser;
     protected OutputStreamWriter writer;
-    Map<String, StanzaChild> childParsers = new HashMap<>();
-    List<StreamListener> listenersStream = new ArrayList<>();
-    List<Message.MessageListener> listenersMessage = new ArrayList<>();
-    List<Presence.PresenceListener> listenersPresence = new ArrayList<>();
-    List<Iq.IqListener> listenersIq = new ArrayList<>();
-    HashMap<String, Iq.IqListener> listenersIqId = new HashMap<>();
+    private Map<String, StanzaChild> childParsers = new HashMap<>();
+    protected List<StreamListener> listenersStream = new ArrayList<>();
+    protected List<Message.MessageListener> listenersMessage = new ArrayList<>();
+    protected List<Presence.PresenceListener> listenersPresence = new ArrayList<>();
+    protected List<Iq.IqListener> listenersIq = new ArrayList<>();
+    protected HashMap<String, Iq.IqListener> listenersIqId = new HashMap<>();
     private boolean loggedIn;
     private Instant created;
     private Instant updated;
@@ -73,6 +73,14 @@ public abstract class Stream {
         writer = new OutputStreamWriter(this.os);
         factory = XmlPullParserFactory.newInstance();
         created = updated = Instant.now();
+    }
+
+    public boolean isLoggedIn() {
+        return loggedIn;
+    }
+
+    public void setLoggedIn(boolean loggedIn) {
+        this.loggedIn = loggedIn;
     }
 
     public void restartStream() throws XmlPullParserException, IOException {
@@ -91,6 +99,8 @@ public abstract class Stream {
             connectionFailed(e);
         }
     }
+
+    protected abstract void handshake() throws XmlPullParserException, IOException;
 
     public void addChildParser(StanzaChild childparser) {
         childParsers.put(childparser.getXMLNS(), childparser);
@@ -144,8 +154,6 @@ public abstract class Stream {
         return listenersIq.remove(l);
     }
 
-    public abstract void handshake() throws XmlPullParserException, IOException;
-
     public void logoff() {
         setLoggedIn(false);
         try {
@@ -155,6 +163,14 @@ public abstract class Stream {
         } catch (final Exception e) {
             connectionFailed(e);
         }
+    }
+
+    public void close() {
+        try {
+            writer.write("</stream:stream>");
+        } catch (IOException e) {
+        }
+        logoff();
     }
 
     public void send(final Stanza s) {
@@ -171,7 +187,7 @@ public abstract class Stream {
         }
     }
 
-    private void parse() throws IOException, ParseException {
+    protected void parse() throws IOException, ParseException {
         try {
             while (parser.next() != XmlPullParser.END_DOCUMENT) {
                 if (parser.getEventType() == XmlPullParser.IGNORABLE_WHITESPACE) {
@@ -184,37 +200,16 @@ public abstract class Stream {
                 final String tag = parser.getName();
                 switch (tag) {
                     case "message":
-                        Message msg = Message.parse(parser, childParsers);
-                        for (Message.MessageListener listener : listenersMessage) {
-                            listener.onMessage(msg);
-                        }
+                        message();
                         break;
                     case "presence":
-                        Presence p = Presence.parse(parser, childParsers);
-                        for (Presence.PresenceListener listener : listenersPresence) {
-                            listener.onPresence(p);
-                        }
+                        presence();
                         break;
                     case "iq":
-                        Iq iq = Iq.parse(parser, childParsers);
-                        final String key = (iq.from == null) ? "" : iq.from.toEscapedString() + "\n" + iq.id;
-                        boolean parsed = false;
-                        if (listenersIqId.containsKey(key)) {
-                            Iq.IqListener l = listenersIqId.get(key);
-                            parsed = l.onIq(iq);
-                            listenersIqId.remove(key);
-                        } else {
-                            for (Iq.IqListener listener : listenersIq) {
-                                parsed |= listener.onIq(iq);
-                            }
-                        }
-                        if (!parsed) {
-                            send(iq.error());
-                        }
+                        iq();
                         break;
                     case "error":
-                        StreamError error = StreamError.parse(parser);
-                        connectionFailed(new Exception(error.getCondition()));
+                        error();
                         return;
                     default:
                         XmlUtils.skip(parser);
@@ -227,6 +222,43 @@ public abstract class Stream {
             connectionFailed(new Exception(invalidXmlError.getCondition()));
         }
 
+    }
+
+    protected void error() throws IOException, XmlPullParserException {
+        StreamError error = StreamError.parse(parser);
+        connectionFailed(new Exception(error.getCondition()));
+    }
+
+    protected void iq() throws XmlPullParserException, IOException, ParseException {
+        Iq iq = Iq.parse(parser, childParsers);
+        final String key = (iq.from == null) ? "" : iq.from.toEscapedString() + "\n" + iq.id;
+        boolean parsed = false;
+        if (listenersIqId.containsKey(key)) {
+            Iq.IqListener l = listenersIqId.get(key);
+            parsed = l.onIq(iq);
+            listenersIqId.remove(key);
+        } else {
+            for (Iq.IqListener listener : listenersIq) {
+                parsed |= listener.onIq(iq);
+            }
+        }
+        if (!parsed) {
+            send(iq.error());
+        }
+    }
+
+    protected void presence() throws XmlPullParserException, IOException, ParseException {
+        Presence p = Presence.parse(parser, childParsers);
+        for (Presence.PresenceListener listener : listenersPresence) {
+            listener.onPresence(p);
+        }
+    }
+
+    protected void message() throws XmlPullParserException, IOException, ParseException {
+        Message msg = Message.parse(parser, childParsers);
+        for (Message.MessageListener listener : listenersMessage) {
+            listener.onMessage(msg);
+        }
     }
 
     /**
@@ -245,20 +277,5 @@ public abstract class Stream {
         for (StreamListener listener : listenersStream) {
             listener.fail(ex);
         }
-    }
-
-    public void setInputStream(InputStream is) {
-        this.is = is;
-    }
-    public void setOutputStream(OutputStream os) {
-        this.os = os;
-    }
-
-    public Instant getCreated() {
-        return created;
-    }
-
-    public Instant getUpdated() {
-        return updated;
     }
 }
